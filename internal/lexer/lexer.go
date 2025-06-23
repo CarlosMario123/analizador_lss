@@ -43,6 +43,7 @@ func (l *Lexer) NextToken() Token {
 	l.skipWhitespace()
 
 	var tok Token
+	// CORREGIDO: Capturar línea y columna ANTES de procesar
 	tok.Line = l.line
 	tok.Column = l.column
 
@@ -55,26 +56,26 @@ func (l *Lexer) NextToken() Token {
 		if l.peekChar() == '=' {
 			ch := l.ch
 			l.readChar()
-			tok = Token{Type: TOKEN_EQUAL, Lexeme: string(ch) + string(l.ch)}
+			tok = Token{Type: TOKEN_EQUAL, Lexeme: string(ch) + string(l.ch), Line: tok.Line, Column: tok.Column}
 		} else {
-			tok = Token{Type: TOKEN_ASSIGN, Lexeme: string(l.ch)}
+			tok = Token{Type: TOKEN_ASSIGN, Lexeme: string(l.ch), Line: tok.Line, Column: tok.Column}
 		}
 	case '+':
-		tok = Token{Type: TOKEN_PLUS, Lexeme: string(l.ch)}
+		tok = Token{Type: TOKEN_PLUS, Lexeme: string(l.ch), Line: tok.Line, Column: tok.Column}
 	case '*':
-		tok = Token{Type: TOKEN_MULT, Lexeme: string(l.ch)}
+		tok = Token{Type: TOKEN_MULT, Lexeme: string(l.ch), Line: tok.Line, Column: tok.Column}
 	case ';':
-		tok = Token{Type: TOKEN_SEMI, Lexeme: string(l.ch)}
+		tok = Token{Type: TOKEN_SEMI, Lexeme: string(l.ch), Line: tok.Line, Column: tok.Column}
 	case '{':
-		tok = Token{Type: TOKEN_LBRACE, Lexeme: string(l.ch)}
+		tok = Token{Type: TOKEN_LBRACE, Lexeme: string(l.ch), Line: tok.Line, Column: tok.Column}
 	case '}':
-		tok = Token{Type: TOKEN_RBRACE, Lexeme: string(l.ch)}
+		tok = Token{Type: TOKEN_RBRACE, Lexeme: string(l.ch), Line: tok.Line, Column: tok.Column}
 	case '(':
-		tok = Token{Type: TOKEN_LPAREN, Lexeme: string(l.ch)}
+		tok = Token{Type: TOKEN_LPAREN, Lexeme: string(l.ch), Line: tok.Line, Column: tok.Column}
 	case ')':
-		tok = Token{Type: TOKEN_RPAREN, Lexeme: string(l.ch)}
+		tok = Token{Type: TOKEN_RPAREN, Lexeme: string(l.ch), Line: tok.Line, Column: tok.Column}
 	case 0:
-		tok = Token{Type: TOKEN_EOF, Lexeme: ""}
+		tok = Token{Type: TOKEN_EOF, Lexeme: "", Line: tok.Line, Column: tok.Column}
 	default:
 		if isLetter(l.ch) {
 			tok.Lexeme = l.readIdentifier()
@@ -90,7 +91,7 @@ func (l *Lexer) NextToken() Token {
 			tok.Lexeme = l.readNumber()
 			return tok
 		} else {
-			tok = Token{Type: TOKEN_ERROR, Lexeme: string(l.ch)}
+			tok = Token{Type: TOKEN_ERROR, Lexeme: string(l.ch), Line: tok.Line, Column: tok.Column}
 		}
 	}
 
@@ -108,12 +109,13 @@ func (l *Lexer) readChar() {
 	
 	l.position = l.readPosition
 	l.readPosition++
-	l.column++
 	
-	// Actualiza línea y columna en caso de nueva línea
+	// CORREGIDO: Actualizar línea y columna correctamente
 	if l.ch == '\n' {
 		l.line++
-		l.column = 0
+		l.column = 1  // Reiniciar columna a 1, no a 0
+	} else {
+		l.column++
 	}
 }
 

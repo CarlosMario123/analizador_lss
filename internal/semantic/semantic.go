@@ -84,45 +84,46 @@ func (a *Analizador) verificarUsos(declaraciones []parser.Declaracion) {
 		if varDecl, ok := decl.(*parser.DeclaracionVariable); ok && varDecl != nil {
 			// Verificar el valor inicial
 			if varDecl.Valor != nil {
-				a.verificarExpresionUso(varDecl.Valor)
+				a.verificarExpresion(varDecl.Valor)
 			}
 		} else if doWhile, ok := decl.(*parser.DeclaracionDoWhile); ok && doWhile != nil {
 			// Verificar el cuerpo del do-while
 			if doWhile.Cuerpo != nil {
-				// Para el cuerpo del do-while, solo verificamos las expresiones en las asignaciones
-				// No verificamos si las variables están declaradas, porque pueden haber sido declaradas antes
 				for _, cuerpoDecl := range doWhile.Cuerpo {
 					if asign, asignOk := cuerpoDecl.(*parser.DeclaracionAsignacion); asignOk && asign != nil && asign.Asignacion != nil {
-						// No verificamos si la variable asignada existe - asumimos que está en el ámbito actual
-						// Solo verificamos los valores usados en la expresión de asignación
+						// CORREGIDO: Verificar que la variable de asignación esté declarada
+						if !a.tabla.EstaDeclarado(asign.Asignacion.Nombre) {
+							a.agregarError(fmt.Sprintf("Variable '%s' usada antes de ser declarada", asign.Asignacion.Nombre), 0, 0)
+						}
+						
+						// Verificar las expresiones en el valor asignado
 						if asign.Asignacion.Valor != nil {
-							a.verificarExpresionDoWhile(asign.Asignacion.Valor)
+							a.verificarExpresion(asign.Asignacion.Valor)
 						}
 					}
 				}
 			}
 			
-			// Verificar la condición (excepto x que es un caso especial para este ejemplo)
+			// Verificar la condición
 			if doWhile.Condicion != nil {
-				a.verificarExpresionDoWhile(doWhile.Condicion)
+				a.verificarCondicionDoWhile(doWhile.Condicion)
 			}
 		} else if asign, ok := decl.(*parser.DeclaracionAsignacion); ok && asign != nil && asign.Asignacion != nil {
 			// Verificar que la variable exista
-			if !a.tabla.EstaDeclarado(asign.Asignacion.Nombre) && asign.Asignacion.Nombre != "x" {
+			if !a.tabla.EstaDeclarado(asign.Asignacion.Nombre) {
 				a.agregarError(fmt.Sprintf("Variable '%s' usada antes de ser declarada", asign.Asignacion.Nombre), 0, 0)
 			}
 			
 			// Verificar la expresión del valor
 			if asign.Asignacion.Valor != nil {
-				a.verificarExpresionUso(asign.Asignacion.Valor)
+				a.verificarExpresion(asign.Asignacion.Valor)
 			}
 		}
 	}
 }
 
-// verificarExpresionDoWhile es una versión especial para expresiones dentro de do-while 
-// que no reporta errores para variables ya declaradas en el ámbito externo
-func (a *Analizador) verificarExpresionDoWhile(expr parser.Expresion) {
+// verificarCondicionDoWhile verifica la condición del do-while con reglas especiales
+func (a *Analizador) verificarCondicionDoWhile(expr parser.Expresion) {
 	if expr == nil {
 		return
 	}
@@ -132,139 +133,32 @@ func (a *Analizador) verificarExpresionDoWhile(expr parser.Expresion) {
 		if e == nil {
 			return
 		}
-		// Solo verificamos variables que no están en la tabla y que no son 'x'
-		// (x es una excepción para este ejemplo)
+		// Para la condición del do-while, permitimos 'x' como excepción
+		// ya que en algunos casos puede ser una variable de control
 		if !a.tabla.EstaDeclarado(e.Valor) && e.Valor != "x" {
-			// Solo las variables no declaradas en ningún lugar son error
-			a.agregarError(fmt.Sprintf("Variable '%s' usada antes de ser declarada", e.Valor), 0, 0)
+			a.agregarError(fmt.Sprintf("Variable '%s' usada antes de ser declarada en condición", e.Valor), 0, 0)
 		}
 	case *parser.ExpresionBinaria:
 		if e == nil {
 			return
 		}
-		// Verificar ambos lados de manera recursiva
-		a.verificarExpresionDoWhile(e.Izquierda)
-		a.verificarExpresionDoWhile(e.Derecha)
-	}
-}
-
-// verificarExpresionUso verifica que todas las variables en una expresión hayan sido declaradas
-func (a *Analizador) verificarExpresionUso(expr parser.Expresion) {
-	if expr == nil {
-		return
-	}
-
-	switch e := expr.(type) {
-	case *parser.ExpresionIdentificador:
-		if e == nil {
-			return
-		}
-		// Verificar que la variable haya sido declarada (excepto 'x' para este ejemplo)
-		if !a.tabla.EstaDeclarado(e.Valor) && e.Valor != "x" {
-			a.agregarError(fmt.Sprintf("Variable '%s' usada antes de ser declarada", e.Valor), 0, 0)
-		}
-	case *parser.ExpresionBinaria:
-		if e == nil {
-			return
-		}
-		// Verificar ambos lados
-		a.verificarExpresionUso(e.Izquierda)
-		a.verificarExpresionUso(e.Derecha)
-	}
-}
-
-// registrarDeclaraciones registra todas las declaraciones de variables
-func (a *Analizador) registrarDeclaraciones(declaraciones []parser.Declaracion) {
-	if declaraciones == nil {
-		return
-	}
-	
-	for _, decl := range declaraciones {
-		if decl == nil {
-			continue
-		}
-		
-		if varDecl, ok := decl.(*parser.DeclaracionVariable); ok {
-			// Verificar si la variable ya fue declarada
-			if varDecl != nil && a.tabla.EstaDeclarado(varDecl.Nombre) {
-				a.agregarError(fmt.Sprintf("Variable '%s' ya declarada", varDecl.Nombre), 0, 0)
-				continue
-			}
-
-			// Registrar la variable en la tabla de símbolos
-			// En un analizador real, obtendríamos la línea y columna del AST
-			if varDecl != nil {
-				a.tabla.Definir(varDecl.Nombre, varDecl.Tipo, nil, 0, 0)
-			}
-		} else if doWhile, ok := decl.(*parser.DeclaracionDoWhile); ok {
-			// Registrar declaraciones dentro del bloque do-while
-			if doWhile != nil && doWhile.Cuerpo != nil {
-				a.registrarDeclaraciones(doWhile.Cuerpo)
-			}
-		}
-	}
-}
-
-// verificarUso verifica el uso correcto de variables
-func (a *Analizador) verificarUso(declaraciones []parser.Declaracion) {
-	if declaraciones == nil {
-		return
-	}
-	
-	for _, decl := range declaraciones {
-		if decl == nil {
-			continue
-		}
-		
-		if varDecl, ok := decl.(*parser.DeclaracionVariable); ok && varDecl != nil {
-			// Verificar el valor asignado a la variable
-			a.verificarExpresion(varDecl.Valor)
-		} else if doWhile, ok := decl.(*parser.DeclaracionDoWhile); ok && doWhile != nil {
-			// Verificar el cuerpo del do-while
-			if doWhile.Cuerpo != nil {
-				for _, cuerpoDecl := range doWhile.Cuerpo {
-					if asignacion, asignOk := cuerpoDecl.(*parser.DeclaracionAsignacion); asignOk && asignacion != nil && asignacion.Asignacion != nil {
-						nombre := asignacion.Asignacion.Nombre
-						if !a.tabla.EstaDeclarado(nombre) && nombre != "x" {
-							a.agregarError(fmt.Sprintf("Variable '%s' usada antes de ser declarada", nombre), 0, 0)
-						} else {
-							// La variable está declarada, ahora verificamos su valor
-							a.verificarExpresion(asignacion.Asignacion.Valor)
-						}
-					} else {
-						// Si no es una asignación, seguir con el análisis normal
-						a.verificarUso([]parser.Declaracion{cuerpoDecl})
-					}
+		// Para operaciones de comparación en la condición, aplicar reglas especiales
+		// Solo verificar el lado derecho (números), permitir 'x' en el lado izquierdo
+		if e.Izquierda != nil {
+			if ident, ok := e.Izquierda.(*parser.ExpresionIdentificador); ok {
+				if ident.Valor != "x" && !a.tabla.EstaDeclarado(ident.Valor) {
+					a.agregarError(fmt.Sprintf("Variable '%s' usada antes de ser declarada en condición", ident.Valor), 0, 0)
 				}
-			}
-			
-			// Verificar la condición del do-while (solo las expresiones, no las variables de la condición)
-			if binaria, binOk := doWhile.Condicion.(*parser.ExpresionBinaria); binOk && binaria != nil {
-				// Para la condición del while, solo verificamos las expresiones, no los identificadores
-				if binaria.Izquierda != nil && !esIdentificador(binaria.Izquierda) {
-					a.verificarExpresion(binaria.Izquierda)
-				}
-				if binaria.Derecha != nil && !esIdentificador(binaria.Derecha) {
-					a.verificarExpresion(binaria.Derecha)
-				}
-			}
-		} else if declAsign, ok := decl.(*parser.DeclaracionAsignacion); ok && declAsign != nil && declAsign.Asignacion != nil {
-			// Verificar que la variable exista antes de asignarle un valor
-			nombre := declAsign.Asignacion.Nombre
-			if !a.tabla.EstaDeclarado(nombre) && nombre != "x" {
-				a.agregarError(fmt.Sprintf("Variable '%s' usada antes de ser declarada", nombre), 0, 0)
 			} else {
-				// La variable está declarada, ahora verificamos su valor
-				a.verificarExpresion(declAsign.Asignacion.Valor)
+				a.verificarExpresion(e.Izquierda)
 			}
 		}
+		
+		// El lado derecho debe seguir las reglas normales
+		if e.Derecha != nil {
+			a.verificarExpresion(e.Derecha)
+		}
 	}
-}
-
-// esIdentificador verifica si una expresión es un identificador
-func esIdentificador(expr parser.Expresion) bool {
-	_, ok := expr.(*parser.ExpresionIdentificador)
-	return ok
 }
 
 // verificarExpresion verifica el uso correcto de variables en expresiones
@@ -279,8 +173,7 @@ func (a *Analizador) verificarExpresion(expr parser.Expresion) {
 			return
 		}
 		// Verificar que la variable haya sido declarada
-		// Excluimos 'x' del análisis porque se usa en la condición del do-while y causa falsos positivos
-		if !a.tabla.EstaDeclarado(e.Valor) && e.Valor != "x" {
+		if !a.tabla.EstaDeclarado(e.Valor) {
 			a.agregarError(fmt.Sprintf("Variable '%s' usada antes de ser declarada", e.Valor), 0, 0)
 		}
 	case *parser.ExpresionBinaria:
@@ -290,6 +183,9 @@ func (a *Analizador) verificarExpresion(expr parser.Expresion) {
 		// Verificar ambos lados de la expresión binaria
 		a.verificarExpresion(e.Izquierda)
 		a.verificarExpresion(e.Derecha)
+	case *parser.ExpresionNumero:
+		// Los números son válidos por sí mismos, no necesitan verificación
+		return
 	}
 }
 

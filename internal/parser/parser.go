@@ -5,7 +5,7 @@ import (
 	"analyzer-api/internal/lexer"
 )
 
-// Parser estructura para el analizador sintáctico
+
 type Parser struct {
 	l         *lexer.Lexer
 	tokens    []lexer.Token
