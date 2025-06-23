@@ -66,15 +66,34 @@ func (p *Parser) Parse() *Programa {
 
 	fmt.Println("Iniciando análisis sintáctico...")
 
-	for p.curToken.Type != lexer.TOKEN_EOF {
-		fmt.Printf("Procesando token: '%s' (%s) en línea %d, columna %d\n", 
-			p.curToken.Lexeme, p.curToken.Type, p.curToken.Line, p.curToken.Column)
+	// Contador de seguridad para evitar bucles infinitos
+	maxIteraciones := len(p.tokens) * 2 // Máximo 2 veces el número de tokens
+	iteraciones := 0
+
+	for p.curToken.Type != lexer.TOKEN_EOF && iteraciones < maxIteraciones {
+		iteraciones++
+		fmt.Printf("Procesando token: '%s' (%s) en línea %d, columna %d [iter: %d]\n", 
+			p.curToken.Lexeme, p.curToken.Type, p.curToken.Line, p.curToken.Column, iteraciones)
+		
+		// Guardar posición actual para detectar bucles infinitos
+		posicionAnterior := p.position
 		
 		decl := p.parseDeclaracion()
 		if decl != nil {
 			programa.Declaraciones = append(programa.Declaraciones, decl)
 			fmt.Printf("Declaración agregada exitosamente\n")
 		}
+		
+		// CRÍTICO: Si no avanzamos, forzar avance para evitar bucle infinito
+		if p.position == posicionAnterior && p.curToken.Type != lexer.TOKEN_EOF {
+			fmt.Printf("RECOVERY: Forzando avance del token '%s' para evitar bucle infinito\n", p.curToken.Lexeme)
+			p.nextToken()
+		}
+	}
+
+	if iteraciones >= maxIteraciones {
+		p.agregarError("Análisis interrumpido: demasiadas iteraciones (posible bucle infinito)")
+		fmt.Println("ERROR: Análisis interrumpido por exceso de iteraciones - posible bucle infinito")
 	}
 
 	fmt.Println("Análisis sintáctico completado.")
@@ -93,7 +112,9 @@ func (p *Parser) parseDeclaracion() Declaracion {
 			return p.parseDeclaracionAsignacion()
 		} else {
 			p.agregarError(fmt.Sprintf("Declaración inesperada con token %s", p.curToken.Lexeme))
-			p.nextToken() // Avanzar para evitar bucle infinito
+			fmt.Printf("ERROR: Token inesperado '%s' - saltando\n", p.curToken.Lexeme)
+			// SIEMPRE avanzar en caso de error para evitar bucle infinito
+			p.nextToken()
 			return nil
 		}
 	}
@@ -152,7 +173,23 @@ func (p *Parser) parseDoWhile() *DeclaracionDoWhile {
 
 	// Siguiente debe ser {
 	if !p.expectPeek(lexer.TOKEN_LBRACE) {
-		return nil
+		p.agregarError("Se esperaba '{' después de 'do'")
+		fmt.Println("ERROR: Falta '{' después de 'do' - abortando do-while")
+		
+		// RECOVERY: Buscar hasta encontrar 'while' o final
+		for p.curToken.Type != lexer.TOKEN_WHILE && p.curToken.Type != lexer.TOKEN_EOF {
+			fmt.Printf("RECOVERY: Saltando token '%s'\n", p.curToken.Lexeme)
+			p.nextToken()
+		}
+		
+		if p.curToken.Type == lexer.TOKEN_EOF {
+			fmt.Println("RECOVERY: Llegó al final sin encontrar 'while'")
+			return nil
+		}
+		
+		fmt.Println("RECOVERY: Encontrado 'while', intentando continuar análisis...")
+		// Continuar con el análisis del while desde aquí
+		goto parseWhileCondition
 	}
 
 	// Avanzar después de {
@@ -185,8 +222,10 @@ func (p *Parser) parseDoWhile() *DeclaracionDoWhile {
 		return nil
 	}
 
+parseWhileCondition:
 	// Siguiente debe ser (
 	if !p.expectPeek(lexer.TOKEN_LPAREN) {
+		p.agregarError("Se esperaba '(' después de 'while'")
 		return nil
 	}
 
@@ -200,6 +239,17 @@ func (p *Parser) parseDoWhile() *DeclaracionDoWhile {
 	fmt.Printf("Analizando condición del while, token actual: '%s'\n", p.curToken.Lexeme)
 	dowhile.Condicion = p.parseExpresionComparacion()
 	if dowhile.Condicion == nil {
+		// RECOVERY: Si falla la condición, buscar hasta ) y ;
+		fmt.Println("RECOVERY: Error en condición, buscando ')' y ';'")
+		for p.curToken.Type != lexer.TOKEN_RPAREN && p.curToken.Type != lexer.TOKEN_EOF {
+			p.nextToken()
+		}
+		if p.curToken.Type == lexer.TOKEN_RPAREN {
+			p.nextToken()
+			if p.curToken.Type == lexer.TOKEN_SEMI {
+				p.nextToken()
+			}
+		}
 		return nil
 	}
 
